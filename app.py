@@ -335,4 +335,143 @@ def diagnostico_experto(datos):
 
         recomendaciones.append(
             "Verificar la tendencia en próxima inspección."
- 
+        )
+
+    else:
+
+        condicion = "🔴 ALERTA"
+        confianza = 70
+
+        recomendaciones.append(
+            "Revisar FFT, envolvente y condición mecánica."
+        )
+
+    return (
+        condicion,
+        confianza,
+        hallazgos,
+        recomendaciones
+    )
+
+
+# =====================================================
+# INTERFAZ
+# =====================================================
+
+st.title("🔧 Analizador Estadístico de Vibraciones V3")
+
+archivo = st.file_uploader(
+    "Seleccione archivo TXT",
+    type=["txt"]
+)
+
+if archivo:
+
+    try:
+
+        texto = archivo.read().decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+        datos = extraer_datos(texto)
+
+        st.header("Información General")
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+
+            st.write(
+                "**Equipo:**",
+                datos.get("equipo", "")
+            )
+
+            st.write(
+                "**Punto:**",
+                datos.get("punto", "")
+            )
+
+        with c2:
+
+            st.write(
+                "**Fecha:**",
+                datos.get("fecha", "")
+            )
+
+            st.write(
+                "**RPM:**",
+                datos.get("rpm", "")
+            )
+
+        st.header("Indicadores Principales")
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            "Kurtosis",
+            datos.get("kurtosis", "N/A")
+        )
+
+        c2.metric(
+            "Skewness",
+            datos.get("skewness", "N/A")
+        )
+
+        c3.metric(
+            "Crest (+)",
+            datos.get("crest_pos", "N/A")
+        )
+
+        c4.metric(
+            "Crest (-)",
+            datos.get("crest_neg", "N/A")
+        )
+
+        condicion, confianza, hallazgos, recomendaciones = (
+            diagnostico_experto(datos)
+        )
+
+        st.header("Semáforo de Condición")
+
+        st.subheader(condicion)
+
+        st.progress(confianza / 100)
+
+        st.write(
+            f"Confianza estimada: {confianza}%"
+        )
+
+        st.header("Hallazgos")
+
+        for item in hallazgos:
+            st.write("✅", item)
+
+        st.header("Recomendaciones")
+
+        for item in recomendaciones:
+            st.write("🔹", item)
+
+        st.header("Eventos")
+
+        st.write(
+            f"(-) Peaks: {datos.get('neg_peak_xrpm','N/A')} xRPM"
+        )
+
+        st.write(
+            f"(+) Peaks: {datos.get('pos_peak_xrpm','N/A')} xRPM"
+        )
+
+        st.write(
+            f"Zero Crossings: {datos.get('zero_cross_xrpm','N/A')} xRPM"
+        )
+
+        st.header("Datos Extraídos")
+
+        st.json(datos)
+
+    except Exception as e:
+
+        st.error(
+            f"Error procesando archivo: {str(e)}"
+        )
