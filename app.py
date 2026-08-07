@@ -2,16 +2,11 @@ import streamlit as st
 import re
 
 
-# ==========================================
+# =====================================================
 # FUNCIONES AUXILIARES
-# ==========================================
+# =====================================================
 
 def convertir_numero(valor):
-    """
-    Convierte formatos como:
-    .319 -> 0.319
-    -.015 -> -0.015
-    """
 
     valor = valor.strip()
 
@@ -24,9 +19,9 @@ def convertir_numero(valor):
     return float(valor)
 
 
-# ==========================================
-# EXTRACCION DE DATOS
-# ==========================================
+# =====================================================
+# EXTRAER DATOS
+# =====================================================
 
 def extraer_datos(texto):
 
@@ -34,15 +29,21 @@ def extraer_datos(texto):
 
     # RPM
 
-    rpm = re.search(r"RPM=\s*([\d\.]+)", texto)
+    rpm = re.search(
+        r"RPM=\s*([\d\.]+)",
+        texto
+    )
 
     if rpm:
+
         try:
             datos["rpm"] = float(rpm.group(1))
         except:
             pass
 
-    # MAX PEAK Y CREST FACTOR
+    # =====================================================
+    # CREST FACTOR Y MAX PEAK
+    # =====================================================
 
     patron_peak = re.search(
         r"Max Peak.*?\n\s*([-\.\d]+)\s+([-\.\d]+)\s+([-\.\d]+)\s+([-\.\d]+)",
@@ -73,8 +74,9 @@ def extraer_datos(texto):
         except:
             pass
 
-    # BUSCAR KURTOSIS Y SKEWNESS
-    # MÁS ROBUSTO QUE REGEX
+    # =====================================================
+    # KURTOSIS Y SKEWNESS
+    # =====================================================
 
     lineas = texto.splitlines()
 
@@ -82,26 +84,44 @@ def extraer_datos(texto):
 
         if "Kurtosis" in linea and "Skewness" in linea:
 
-            try:
+            for j in range(i + 1, min(i + 10, len(lineas))):
 
-                valores_linea = lineas[i + 2]
+                candidato = lineas[j].strip()
 
-                valores = valores_linea.split()
+                # Ignorar líneas de guiones
 
-                if len(valores) >= 2:
+                if "-" * 5 in candidato:
+                    continue
 
-                    datos["kurtosis"] = convertir_numero(
-                        valores[0]
-                    )
+                # Buscar números decimales
 
-                    datos["skewness"] = convertir_numero(
-                        valores[1]
-                    )
+                numeros = re.findall(
+                    r'-?\.\d+|-?\d+\.\d+',
+                    candidato
+                )
 
-            except:
-                pass
+                if len(numeros) >= 2:
 
+                    try:
+
+                        datos["kurtosis"] = convertir_numero(
+                            numeros[0]
+                        )
+
+                        datos["skewness"] = convertir_numero(
+                            numeros[1]
+                        )
+
+                        break
+
+                    except:
+                        pass
+
+            break
+
+    # =====================================================
     # SLOPE
+    # =====================================================
 
     slope = re.search(
         r"Slope \(R=.*?\)\s*([-\.\d]+)",
@@ -111,13 +131,17 @@ def extraer_datos(texto):
     if slope:
 
         try:
+
             datos["slope"] = convertir_numero(
                 slope.group(1)
             )
+
         except:
             pass
 
+    # =====================================================
     # MAX DEVIATION
+    # =====================================================
 
     max_dev = re.search(
         r"Max Deviation\s*([-\.\d]+)",
@@ -127,13 +151,17 @@ def extraer_datos(texto):
     if max_dev:
 
         try:
+
             datos["max_deviation"] = convertir_numero(
                 max_dev.group(1)
             )
+
         except:
             pass
 
+    # =====================================================
     # RMS DEVIATION
+    # =====================================================
 
     rms_dev = re.search(
         r"RMS Deviation\s*([-\.\d]+)",
@@ -143,46 +171,52 @@ def extraer_datos(texto):
     if rms_dev:
 
         try:
+
             datos["rms_deviation"] = convertir_numero(
                 rms_dev.group(1)
             )
+
         except:
             pass
 
     return datos
 
 
-# ==========================================
+# =====================================================
 # REGLAS DE DIAGNOSTICO
-# ==========================================
+# =====================================================
 
 def evaluar_kurtosis(valor):
 
     if valor < 1:
+
         return (
-            "Kurtosis muy baja. Distribución normal y "
-            "sin evidencia estadística de impactos."
+            "Kurtosis muy baja. Distribución normal "
+            "sin evidencia de impactos."
         )
 
     elif valor < 3:
+
         return (
             "Condición normal."
         )
 
     elif valor < 5:
+
         return (
-            "Posibles impactos iniciales. "
-            "Revisar tendencia."
+            "Posibles impactos iniciales."
         )
 
     elif valor < 10:
+
         return (
             "Posible daño de rodamiento o lubricación."
         )
 
     else:
+
         return (
-            "Impactos severos. Revisar inmediatamente."
+            "Impactos severos."
         )
 
 
@@ -201,12 +235,12 @@ def evaluar_crest(valor):
         return "Impactos importantes."
 
     else:
-        return "Impactos severos o falla avanzada."
+        return "Impactos severos."
 
 
-# ==========================================
-# INFORME AUTOMATICO
-# ==========================================
+# =====================================================
+# INFORME
+# =====================================================
 
 def generar_informe(datos):
 
@@ -218,11 +252,10 @@ def generar_informe(datos):
     informe.append("")
 
     if "rpm" in datos:
+
         informe.append(
             f"Velocidad de operación: {datos['rpm']} RPM"
         )
-
-    # KURTOSIS
 
     if "kurtosis" in datos:
 
@@ -237,8 +270,6 @@ def generar_informe(datos):
             )
         )
 
-    # CREST FACTOR
-
     if "crest_pos" in datos:
 
         informe.append("")
@@ -251,8 +282,6 @@ def generar_informe(datos):
                 datos["crest_pos"]
             )
         )
-
-    # SKEWNESS
 
     if "skewness" in datos:
 
@@ -273,8 +302,6 @@ def generar_informe(datos):
                 "Distribución asimétrica."
             )
 
-    # DIAGNOSTICO GENERAL
-
     informe.append("")
     informe.append("DIAGNOSTICO GENERAL")
     informe.append("-" * 40)
@@ -284,56 +311,55 @@ def generar_informe(datos):
 
     if kurt < 1 and crest < 4:
 
-        informe.append(
-            "CONDICION BUENA."
-        )
+        informe.append("")
+        informe.append("CONDICION BUENA")
 
         informe.append(
-            "La forma de onda es estable y no presenta "
-            "evidencia estadística de defectos mecánicos."
+            "La señal presenta comportamiento estable. "
+            "No se observan evidencias estadísticas de "
+            "impactos, falla de rodamientos, holgura "
+            "o problemas severos."
         )
 
     elif kurt < 5:
 
-        informe.append(
-            "CONDICION ACEPTABLE."
-        )
+        informe.append("")
+        informe.append("CONDICION ACEPTABLE")
 
         informe.append(
-            "Realizar seguimiento de tendencia."
+            "Mantener monitoreo y análisis de tendencia."
         )
 
     else:
 
-        informe.append(
-            "CONDICION DEFICIENTE."
-        )
+        informe.append("")
+        informe.append("CONDICION DEFICIENTE")
 
         informe.append(
-            "Investigar origen de impactos."
+            "Investigar origen de impactos y revisar "
+            "estado de los rodamientos."
         )
 
     return "\n".join(informe)
 
 
-# ==========================================
-# INTERFAZ STREAMLIT
-# ==========================================
+# =====================================================
+# STREAMLIT
+# =====================================================
 
 st.set_page_config(
-    page_title="Analizador Vibraciones",
+    page_title="Analizador Estadístico",
     layout="wide"
 )
 
 st.title("🔧 Analizador Estadístico de Vibraciones")
 
 st.write(
-    "Cargue un archivo TXT exportado desde AMS, CSI 2140 "
-    "u otro software de vibraciones."
+    "Cargue un archivo TXT exportado desde AMS Machinery Manager, CSI 2140 o software equivalente."
 )
 
 archivo = st.file_uploader(
-    "Seleccione archivo TXT",
+    "Seleccione un archivo TXT",
     type=["txt"]
 )
 
@@ -346,25 +372,20 @@ if archivo:
             errors="ignore"
         )
 
-        with st.expander(
-            "Ver contenido del archivo"
-        ):
-            st.text(texto[:5000])
-
         datos = extraer_datos(texto)
 
-        st.subheader("Variables Extraídas")
+        st.subheader("Variables extraídas")
 
         st.json(datos)
 
         informe = generar_informe(datos)
 
-        st.subheader("Informe Automático")
+        st.subheader("Informe automático")
 
         st.text_area(
             "",
             informe,
-            height=400
+            height=450
         )
 
     except Exception as e:
