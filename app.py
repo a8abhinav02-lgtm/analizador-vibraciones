@@ -201,40 +201,65 @@ def extraer_datos(texto):
             pass
 
     # =====================================
-    # EVENTOS
+    # EVENTOS (CORREGIDO)
     # =====================================
 
-    for linea in lineas:
+    patron_neg = re.search(
+        r'\(-\)\s+Peaks\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)',
+        texto
+    )
 
-        if "(-) Peaks" in linea:
+    if patron_neg:
 
-            valores = extraer_numeros(linea)
+        datos["neg_peak_xrpm"] = float(
+            patron_neg.group(1)
+        )
 
-            if len(valores) >= 3:
+        datos["neg_peak_count"] = int(
+            patron_neg.group(2)
+        )
 
-                datos["neg_peak_xrpm"] = float(valores[0])
-                datos["neg_peak_count"] = int(float(valores[1]))
-                datos["neg_peak_hz"] = float(valores[2])
+        datos["neg_peak_hz"] = float(
+            patron_neg.group(3)
+        )
 
-        if "(+) Peaks" in linea:
+    patron_pos = re.search(
+        r'\(\+\)\s+Peaks\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)',
+        texto
+    )
 
-            valores = extraer_numeros(linea)
+    if patron_pos:
 
-            if len(valores) >= 3:
+        datos["pos_peak_xrpm"] = float(
+            patron_pos.group(1)
+        )
 
-                datos["pos_peak_xrpm"] = float(valores[0])
-                datos["pos_peak_count"] = int(float(valores[1]))
-                datos["pos_peak_hz"] = float(valores[2])
+        datos["pos_peak_count"] = int(
+            patron_pos.group(2)
+        )
 
-        if "Zero Xs/2" in linea:
+        datos["pos_peak_hz"] = float(
+            patron_pos.group(3)
+        )
 
-            valores = extraer_numeros(linea)
+    patron_zero = re.search(
+        r'Zero Xs\/2\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)',
+        texto
+    )
 
-            if len(valores) >= 3:
+    if patron_zero:
 
-                datos["zero_cross_xrpm"] = float(valores[0])
-                datos["zero_cross_count"] = int(float(valores[1]))
-                datos["zero_cross_hz"] = float(valores[2])
+        datos["zero_cross_xrpm"] = float(
+            patron_zero.group(1)
+        )
+
+        datos["zero_cross_count"] = int(
+            patron_zero.group(2)
+        )
+
+        datos["zero_cross_hz"] = float(
+            patron_zero.group(3)
+        )
 
     return datos
 
@@ -256,8 +281,6 @@ def diagnostico_experto(datos):
 
     hallazgos = []
     recomendaciones = []
-
-    # Kurtosis
 
     if kurtosis < 1:
 
@@ -283,8 +306,6 @@ def diagnostico_experto(datos):
             "Impactos significativos detectados."
         )
 
-    # Crest Factor
-
     if crest < 4:
 
         hallazgos.append(
@@ -303,8 +324,6 @@ def diagnostico_experto(datos):
             "Crest Factor elevado."
         )
 
-    # Skewness
-
     if abs(skew) < 0.2:
 
         hallazgos.append(
@@ -316,8 +335,6 @@ def diagnostico_experto(datos):
         hallazgos.append(
             "Distribución asimétrica."
         )
-
-    # Condición
 
     if kurtosis < 1 and crest < 4:
 
@@ -382,27 +399,13 @@ if archivo:
 
         with c1:
 
-            st.write(
-                "**Equipo:**",
-                datos.get("equipo", "")
-            )
-
-            st.write(
-                "**Punto:**",
-                datos.get("punto", "")
-            )
+            st.write("**Equipo:**", datos.get("equipo", ""))
+            st.write("**Punto:**", datos.get("punto", ""))
 
         with c2:
 
-            st.write(
-                "**Fecha:**",
-                datos.get("fecha", "")
-            )
-
-            st.write(
-                "**RPM:**",
-                datos.get("rpm", "")
-            )
+            st.write("**Fecha:**", datos.get("fecha", ""))
+            st.write("**RPM:**", datos.get("rpm", ""))
 
         st.header("Indicadores Principales")
 
@@ -455,15 +458,21 @@ if archivo:
         st.header("Eventos")
 
         st.write(
-            f"(-) Peaks: {datos.get('neg_peak_xrpm','N/A')} xRPM"
+            f"(-) Peaks: {datos.get('neg_peak_xrpm','N/A')} xRPM | "
+            f"{datos.get('neg_peak_hz','N/A')} Hz | "
+            f"{datos.get('neg_peak_count','N/A')} eventos"
         )
 
         st.write(
-            f"(+) Peaks: {datos.get('pos_peak_xrpm','N/A')} xRPM"
+            f"(+) Peaks: {datos.get('pos_peak_xrpm','N/A')} xRPM | "
+            f"{datos.get('pos_peak_hz','N/A')} Hz | "
+            f"{datos.get('pos_peak_count','N/A')} eventos"
         )
 
         st.write(
-            f"Zero Crossings: {datos.get('zero_cross_xrpm','N/A')} xRPM"
+            f"Zero Crossings: {datos.get('zero_cross_xrpm','N/A')} xRPM | "
+            f"{datos.get('zero_cross_hz','N/A')} Hz | "
+            f"{datos.get('zero_cross_count','N/A')} cruces"
         )
 
         st.header("Datos Extraídos")
