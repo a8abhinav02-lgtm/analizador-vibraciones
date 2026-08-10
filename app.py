@@ -3,7 +3,7 @@ import re
 import pandas as pd
 
 # =====================================================
-# CONFIGURACION PAGINA
+# CONFIGURACIÓN DE LA PÁGINA
 # =====================================================
 st.set_page_config(
     page_title="Analizador de Vibraciones - Cat II",
@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 # =====================================================
-# FUNCIONES AUXILIARES DE PARSING
+# FUNCIONES AUXILIARES Y PARSER
 # =====================================================
 def convertir_numero(valor):
     valor = str(valor).strip()
@@ -39,7 +39,7 @@ def extraer_datos(texto):
     m = re.search(r"RPM=\s*([\d\.]+)", texto)
     if m: datos["rpm"] = float(m.group(1))
 
-    # Helper robusto para encontrar números debajo de cada encabezado
+    # Helper para buscar la primera línea de datos debajo de un encabezado
     def obtener_numeros_despues_de(keyword):
         for i, line in enumerate(lines):
             if keyword in line:
@@ -111,7 +111,7 @@ def extraer_datos(texto):
     return datos
 
 # =====================================================
-# DIAGNOSTICO EXPERTO (LÓGICA MEJORADA CAT II)
+# DIAGNÓSTICO EXPERTO (CATEGORÍA II)
 # =====================================================
 def diagnostico_experto(datos):
     kurtosis = datos.get("kurtosis", 3.0)
@@ -121,40 +121,40 @@ def diagnostico_experto(datos):
     hallazgos = []
     recomendaciones = []
 
-    # Evaluacion de Kurtosis
+    # Evaluación de Kurtosis (Basado en teoría ISO)
     if 2.3 <= kurtosis <= 3.5:
-        hallazgos.append(f"Kurtosis normal ({kurtosis}): Distribución gaussiana/continua típica de máquina operando normalmente.")
+        hallazgos.append(f"Kurtosis Normal ({kurtosis}): Distribución gaussiana continua típica de máquina en condición saludable.")
     elif kurtosis < 2.3:
-        hallazgos.append(f"Kurtosis baja ({kurtosis}): Predominio de componente senoidal pura o modulación suave.")
+        hallazgos.append(f"Kurtosis Baja ({kurtosis}): Predominio de componente senoidal pura o señal suave.")
     elif 3.5 < kurtosis <= 4.5:
-        hallazgos.append(f"Kurtosis moderadamente alta ({kurtosis}): Presencia de impactos levemente transitorios.")
+        hallazgos.append(f"Kurtosis Moderadamente Alta ({kurtosis}): Presencia de impactos levemente transitorios.")
     else:
-        hallazgos.append(f"Kurtosis severa ({kurtosis}): Presencia marcada de impactos impulsivos repetitivos (rodamientos/engranajes).")
+        hallazgos.append(f"Kurtosis Severa ({kurtosis}): Presencia marcada de impactos impulsivos repetitivos (falla de rodamientos/engranajes).")
 
     # Evaluación Factor de Cresta
     if crest < 3.5:
         hallazgos.append(f"Factor de Cresta Normal ({crest:.2f}).")
     elif 3.5 <= crest < 5.0:
-        hallazgos.append(f"Factor de Cresta Moderado ({crest:.2f}): Picos de alta frecuencia por encima del valor continuo.")
+        hallazgos.append(f"Factor de Cresta Moderado ({crest:.2f}): Picos de alta frecuencia por encima del valor continuo RMS.")
     else:
-        hallazgos.append(f"Factor de Cresta Elevado ({crest:.2f}): Picos de aceleración de alta energía.")
+        hallazgos.append(f"Factor de Cresta Elevado ({crest:.2f}): Picos de aceleración transitorios de alta energía.")
 
     # Evaluación Asimetría
     if abs(skew) < 0.2:
         hallazgos.append("Distribución simétrica de la forma de onda.")
     else:
-        hallazgos.append(f"Distribución asimétrica (Skewness: {skew}): Carga/impacto unidireccional o fricción.")
+        hallazgos.append(f"Distribución asimétrica (Skewness: {skew}): Carga/impacto unidireccional o fricción direccional.")
 
-    # Ponderación y Condición Global
+    # Condición Global y Ponderación
     if (2.0 <= kurtosis <= 3.5) and crest < 4.0:
         condicion = "🟢 BUENA"
         confianza = 95
-        recomendaciones.append("Mantener la rutina de monitoreo periódica actual.")
+        recomendaciones.append("Mantener la rutina de monitoreo periódica habitual.")
     elif (kurtosis <= 4.2) and crest < 5.2:
         condicion = "🟡 ACEPTABLE / ADVERTENCIA"
         confianza = 85
-        recomendaciones.append("Verificar envolvente de aceleración (gSE/PeakVue) y tendencias de rodamientos.")
-        recomendaciones.append("Inspeccionar lubricación y transmisión por correa/poleas si aplica.")
+        recomendaciones.append("Verificar la tendencia en la envolvente de aceleración (gSE/PeakVue).")
+        recomendaciones.append("Inspeccionar lubricación y estado de la transmisión por correas/poleas.")
     else:
         condicion = "🔴 ALERTA CRÍTICA"
         confianza = 90
@@ -164,7 +164,7 @@ def diagnostico_experto(datos):
     return condicion, confianza, hallazgos, recomendaciones
 
 # =====================================================
-# EVALUACION CINEMATICA (xRPM)
+# EVALUACIÓN CINEMÁTICA (xRPM)
 # =====================================================
 def evaluar_cinematica(pos_xrpm):
     if pos_xrpm is None or pos_xrpm == 0:
@@ -182,7 +182,7 @@ def evaluar_cinematica(pos_xrpm):
         return f"Alta Frecuencia ({pos_xrpm:.2f}x): Paso de álabes/dientes, engrane, armónico VFD o modulación de correa."
 
 # =====================================================
-# INTERFAZ STREAMLIT
+# INTERFAZ Y FLUJO DE USUARIO EN STREAMLIT
 # =====================================================
 st.title("⚡ Analizador Estadístico de Vibraciones (Categoría II)")
 
@@ -193,16 +193,49 @@ if archivo:
         texto = archivo.read().decode("utf-8", errors="ignore")
         datos = extraer_datos(texto)
 
-        # 1. Datos Generales
+        # -------------------------------------------------------------
+        # AJUSTE / CONFIRMACIÓN DE VELOCIDAD DE OPERACIÓN (RPM)
+        # -------------------------------------------------------------
+        rpm_detectada = datos.get("rpm", 1780.0)
+
+        with st.sidebar:
+            st.header("⚙️ Configuración Cinemática")
+            st.info(f"RPM detectada en TXT: **{rpm_detectada:.1f} RPM**")
+            
+            rpm_real = st.number_input(
+                "Confirmar/Ajustar RPM Real de Operación:",
+                min_value=1.0,
+                max_value=100000.0,
+                value=float(rpm_detectada),
+                step=1.0,
+                help="Si midió con estroboscopio o sabe la velocidad real del proceso, ajústela aquí para recalcular las frecuencias xRPM."
+            )
+
+        # Recalcular órdenes cinemáticos si la RPM fue modificada por el usuario
+        datos["rpm"] = rpm_real
+        frecuencia_1x_hz = rpm_real / 60.0
+
+        if "pos_peak_hz" in datos and frecuencia_1x_hz > 0:
+            datos["pos_peak_xrpm"] = datos["pos_peak_hz"] / frecuencia_1x_hz
+        if "neg_peak_hz" in datos and frecuencia_1x_hz > 0:
+            datos["neg_peak_xrpm"] = datos["neg_peak_hz"] / frecuencia_1x_hz
+        if "zero_cross_hz" in datos and frecuencia_1x_hz > 0:
+            datos["zero_cross_xrpm"] = datos["zero_cross_hz"] / frecuencia_1x_hz
+
+        # -------------------------------------------------------------
+        # DESPLIEGUE DE ENCABEZADO GENERAL
+        # -------------------------------------------------------------
         col_m1, col_m2, col_m3, col_m4 = st.columns(4)
         col_m1.metric("Equipo", datos.get("equipo", "N/A"))
         col_m2.metric("Punto", datos.get("punto", "N/A"))
         col_m3.metric("Fecha", datos.get("fecha", "N/A"))
-        col_m4.metric("Velocidad (RPM)", f"{datos.get('rpm', 0):.1f}")
+        col_m4.metric("Velocidad Validada", f"{rpm_real:.1f} RPM")
 
         st.markdown("---")
 
-        # 2. Pestañas de Trabajo
+        # -------------------------------------------------------------
+        # PESTAÑAS DE TRABAJO
+        # -------------------------------------------------------------
         tab_diag, tab_stats, tab_events, tab_raw, tab_help = st.tabs([
             "📋 Diagnóstico Experto", 
             "📊 Indicadores Estadísticos", 
@@ -211,7 +244,7 @@ if archivo:
             "ℹ️ Guía & Ayuda"
         ])
 
-        # TAB 1: DIAGNÓSTICO
+        # TAB 1: DIAGNÓSTICO EXPERTO
         with tab_diag:
             condicion, confianza, hallazgos, recomendaciones = diagnostico_experto(datos)
             
@@ -227,11 +260,11 @@ if archivo:
                 for h in hallazgos:
                     st.markdown(f"• {h}")
 
-                st.subheader("Recomendaciones")
+                st.subheader("Recomendaciones Tácticas")
                 for r in recomendaciones:
                     st.markdown(f"👉 **{r}**")
 
-        # TAB 2: ESTADÍSTICAS Y GRÁFICO
+        # TAB 2: INDICADORES ESTADÍSTICOS
         with tab_stats:
             st.subheader("Parámetros Estadísticos de Forma de Onda")
             c1, c2, c3, c4 = st.columns(4)
@@ -240,6 +273,7 @@ if archivo:
             c3.metric("Crest Factor (+)", f"{datos.get('crest_pos', 0):.2f}")
             c4.metric("Crest Factor (-)", f"{datos.get('crest_neg', 0):.2f}")
 
+            # Gráfico Nativo de Histograma de Distribución
             if "distribucion_pct" in datos:
                 st.subheader("Distribución de la Onda (Histograma Std Dev)")
                 std_labels = ["-5.0", "-4.3", "-3.6", "-2.9", "-2.1", "-1.4", "-0.7", "0.0", "0.7", "1.4", "2.1", "2.9", "3.6", "4.3", "5.0"]
@@ -250,7 +284,7 @@ if archivo:
                 
                 st.bar_chart(df_dist)
 
-        # TAB 3: EVENTOS Y CINEMÁTICA
+        # TAB 3: CINEMÁTICA Y EVENTOS
         with tab_events:
             st.subheader("Análisis de Picos y Frecuencias (xRPM)")
             
@@ -279,7 +313,7 @@ if archivo:
         with tab_raw:
             st.json(datos)
 
-        # TAB 5: GUÍA & AYUDA METODOLÓGICA
+        # TAB 5: GUÍA Y AYUDA METODOLÓGICA
         with tab_help:
             st.header("📖 Guía de Interpretación Metodológica (ISO 18436-2)")
             st.markdown("""
