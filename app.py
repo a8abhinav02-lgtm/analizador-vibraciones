@@ -1,7 +1,6 @@
 import streamlit as st
 import re
 import pandas as pd
-import plotly.express as px
 
 # =====================================================
 # CONFIGURACION PAGINA
@@ -13,65 +12,66 @@ st.set_page_config(
 )
 
 # =====================================================
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES DE PARSING
 # =====================================================
 def convertir_numero(valor):
-    valor = valor.strip()
+    valor = str(valor).strip()
     if valor.startswith("-."):
         valor = valor.replace("-.", "-0.")
     elif valor.startswith("."):
         valor = "0" + valor
     return float(valor)
 
-def extraer_numeros(linea):
-    return re.findall(r'-?\d+\.\d+|-?\.\d+|-?\d+', linea)
-
-# =====================================================
-# EXTRACCION DE DATOS
-# =====================================================
 def extraer_datos(texto):
     datos = {}
-    
+    lines = texto.splitlines()
+
     # 1. Información General
-    m_eq = re.search(r"Equipment:\s*(.*)", texto)
-    if m_eq: datos["equipo"] = m_eq.group(1).strip()
+    m = re.search(r"Equipment:\s*(.*)", texto)
+    if m: datos["equipo"] = m.group(1).strip()
 
-    m_pt = re.search(r"Meas\. Point:\s*(.*)", texto)
-    if m_pt: datos["punto"] = m_pt.group(1).strip()
+    m = re.search(r"Meas\. Point:\s*(.*)", texto)
+    if m: datos["punto"] = m.group(1).strip()
 
-    m_fe = re.search(r"Date/Time:\s*(.*?)\s+RPM=", texto)
-    if m_fe: datos["fecha"] = m_fe.group(1).strip()
+    m = re.search(r"Date/Time:\s*(.*?)\s+RPM=", texto)
+    if m: datos["fecha"] = m.group(1).strip()
 
-    m_rpm = re.search(r"RPM=\s*([\d\.]+)", texto)
-    if m_rpm: datos["rpm"] = float(m_rpm.group(1))
+    m = re.search(r"RPM=\s*([\d\.]+)", texto)
+    if m: datos["rpm"] = float(m.group(1))
 
-    # 2. Max Peak y Crest Factor (Búsqueda por Regex en bloque)
-    match_max_crest = re.search(
-        r"Max Peak\s+\(\+\)\s+\(-\)\s+Crest Factor\s+\(\+\).*?\n[--\s]+\n\s*([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)",
-        texto
-    )
-    if match_max_crest:
-        datos["max_peak_neg"] = convertir_numero(match_max_crest.group(1))
-        datos["max_peak_pos"] = convertir_numero(match_max_crest.group(2))
-        datos["crest_neg"] = convertir_numero(match_max_crest.group(3))
-        datos["crest_pos"] = convertir_numero(match_max_crest.group(4))
+    # Helper robusto para encontrar números debajo de cada encabezado
+    def obtener_numeros_despues_de(keyword):
+        for i, line in enumerate(lines):
+            if keyword in line:
+                for j in range(i + 1, min(i + 4, len(lines))):
+                    # Coincide con enteros, decimales y decimales sin cero inicial (.2811, 31., -1.24)
+                    nums = re.findall(r'-?\d*\.?\d+', lines[j])
+                    nums = [n for n in nums if n and n != '-']
+                    if len(nums) >= 2:
+                        return nums
+        return []
 
-    # 3. Avg Peak y RMS Amplitude
-    match_avg_rms = re.search(
-        r"Avg Peak\s+\(\+\)\s+\(-\)\s+RMS Amplitude\s+\(\+\).*?\n[--\s]+\n\s*([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)",
-        texto
-    )
-    if match_avg_rms:
-        datos["avg_peak_neg"] = convertir_numero(match_avg_rms.group(1))
-        datos["avg_peak_pos"] = convertir_numero(match_avg_rms.group(2))
-        datos["rms_neg"] = convertir_numero(match_avg_rms.group(3))
-        datos["rms_pos"] = convertir_numero(match_avg_rms.group(4))
+    # 2. Max Peak & Crest Factor
+    nums_max = obtener_numeros_despues_de("Max Peak")
+    if len(nums_max) >= 4:
+        datos["max_peak_neg"] = convertir_numero(nums_max[0])
+        datos["max_peak_pos"] = convertir_numero(nums_max[1])
+        datos["crest_neg"] = convertir_numero(nums_max[2])
+        datos["crest_pos"] = convertir_numero(nums_max[3])
 
-    # 4. Kurtosis y Skewness
-    match_ks = re.search(r"Kurtosis\s+Skewness\s*\n[--\s]+\n.*?\s+([-\d\.]+)\s+([-\d\.]+)\s*$", texto, re.MULTILINE)
-    if match_ks:
-        datos["kurtosis"] = convertir_numero(match_ks.group(1))
-        datos["skewness"] = convertir_numero(match_ks.group(2))
+    # 3. Avg Peak & RMS Amplitude
+    nums_avg = obtener_numeros_despues_de("Avg Peak")
+    if len(nums_avg) >= 4:
+        datos["avg_peak_neg"] = convertir_numero(nums_avg[0])
+        datos["avg_peak_pos"] = convertir_numero(nums_avg[1])
+        datos["rms_neg"] = convertir_numero(nums_avg[2])
+        datos["rms_pos"] = convertir_numero(nums_avg[3])
+
+    # 4. Kurtosis & Skewness
+    nums_kurt = obtener_numeros_despues_de("Kurtosis")
+    if len(nums_kurt) >= 2:
+        datos["kurtosis"] = convertir_numero(nums_kurt[-2])
+        datos["skewness"] = convertir_numero(nums_kurt[-1])
 
     # 5. Drift
     m_slope = re.search(r"Slope \(R=.*?\)\s*([-\.\d]+)", texto)
@@ -102,10 +102,10 @@ def extraer_datos(texto):
         datos["zero_cross_count"] = int(p_zero.group(2))
         datos["zero_cross_hz"] = float(p_zero.group(3))
 
-    # 7. Distribución de Onda para Gráfico (Waveform Distribution %)
-    match_dist = re.search(r"([0-9\s]+)\s+\(%\)", texto)
+    # 7. Distribución de Onda (Waveform Distribution %)
+    match_dist = re.search(r"([\d\s]+)\(%\)", texto)
     if match_dist:
-        dist_vals = [int(x) for x in re.findall(r'\b\d+\b', match_dist.group(1))]
+        dist_vals = [int(x) for x in match_dist.group(1).split()]
         if len(dist_vals) == 15:
             datos["distribucion_pct"] = dist_vals
 
@@ -124,19 +124,19 @@ def diagnostico_experto(datos):
 
     # Evaluacion de Kurtosis
     if 2.3 <= kurtosis <= 3.5:
-        hallazgos.append("Kurtosis normal (2.3 - 3.5): Distribución gaussiana/continua típica.")
+        hallazgos.append(f"Kurtosis normal ({kurtosis}): Distribución gaussiana/continua típica.")
     elif kurtosis < 2.3:
         hallazgos.append(f"Kurtosis baja ({kurtosis}): Predominio de componente senoidal pura o modulación suave.")
     elif 3.5 < kurtosis <= 4.5:
         hallazgos.append(f"Kurtosis moderadamente alta ({kurtosis}): Presencia de impactos levemente transitorios.")
     else:
-        hallazgos.append(f"Kurtosis severa ({kurtosis}): Presencia marcada de impactos impulsivos (posibles rodamientos/engranajes).")
+        hallazgos.append(f"Kurtosis severa ({kurtosis}): Presencia marcada de impactos impulsivos (rodamientos/engranajes).")
 
     # Evaluación Factor de Cresta
     if crest < 3.5:
         hallazgos.append(f"Factor de Cresta Normal ({crest:.2f}).")
     elif 3.5 <= crest < 5.0:
-        hallazgos.append(f"Factor de Cresta Moderado ({crest:.2f}): Picos por encima del valor RMS continuo.")
+        hallazgos.append(f"Factor de Cresta Moderado ({crest:.2f}): Picos de alta frecuencia por encima del valor continuo.")
     else:
         hallazgos.append(f"Factor de Cresta Elevado ({crest:.2f}): Picos de aceleración de alta energía.")
 
@@ -155,7 +155,7 @@ def diagnostico_experto(datos):
         condicion = "🟡 ACEPTABLE / ADVERTENCIA"
         confianza = 85
         recomendaciones.append("Verificar envolvente de aceleración (gSE/PeakVue) y tendencias de rodamientos.")
-        recomendaciones.append("Inspeccionar lubricación y tensión de correas/poleas si aplica.")
+        recomendaciones.append("Inspeccionar lubricación y transmisión por correa/poleas si aplica.")
     else:
         condicion = "🔴 ALERTA CRÍTICA"
         confianza = 90
@@ -227,11 +227,11 @@ if archivo:
                 for h in hallazgos:
                     st.markdown(f"• {h}")
 
-                st.subheader("Recomendaciones Recomendadas")
+                st.subheader("Recomendaciones")
                 for r in recomendaciones:
                     st.markdown(f"👉 **{r}**")
 
-        # TAB 2: ESTADÍSTICAS Y GRÁFICO
+        # TAB 2: ESTADÍSTICAS Y GRÁFICO NATIVO
         with tab_stats:
             st.subheader("Parámetros Estadísticos de Forma de Onda")
             c1, c2, c3, c4 = st.columns(4)
@@ -240,18 +240,16 @@ if archivo:
             c3.metric("Crest Factor (+)", f"{datos.get('crest_pos', 0):.2f}")
             c4.metric("Crest Factor (-)", f"{datos.get('crest_neg', 0):.2f}")
 
-            # Gráfico de Distribución
+            # Gráfico Nativo de Streamlit
             if "distribucion_pct" in datos:
                 st.subheader("Distribución de la Onda (Histograma Std Dev)")
                 std_labels = ["-5.0", "-4.3", "-3.6", "-2.9", "-2.1", "-1.4", "-0.7", "0.0", "0.7", "1.4", "2.1", "2.9", "3.6", "4.3", "5.0"]
                 df_dist = pd.DataFrame({
                     "Desviación Estándar (σ)": std_labels,
                     "Porcentaje (%)": datos["distribucion_pct"]
-                })
-                fig = px.bar(df_dist, x="Desviación Estándar (σ)", y="Porcentaje (%)", text="Porcentaje (%)",
-                             title="Distribución Amplitud vs Desviación Estándar")
-                fig.update_traces(marker_color='#1f77b4', textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
+                }).set_index("Desviación Estándar (σ)")
+                
+                st.bar_chart(df_dist)
 
         # TAB 3: EVENTOS Y CINEMÁTICA
         with tab_events:
