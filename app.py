@@ -39,7 +39,7 @@ def extraer_datos(texto):
     m = re.search(r"RPM=\s*([\d\.]+)", texto)
     if m: datos["rpm"] = float(m.group(1))
 
-    # Helper para buscar la primera línea de datos debajo de un encabezado
+    # Helper para buscar números debajo de cada encabezado
     def obtener_numeros_despues_de(keyword):
         for i, line in enumerate(lines):
             if keyword in line:
@@ -175,4 +175,84 @@ def evaluar_cinematica(pos_xrpm):
     elif 0.95 <= pos_xrpm <= 1.05:
         return f"Síncrono (1X - {pos_xrpm:.2f}x): Desbalance dinámico o componente fundamental."
     elif 1.9 <= pos_xrpm <= 2.1:
-        return f"Armónico (2X - {pos_xrpm:.2f}x): Desalineación, ho
+        return f"Armónico (2X - {pos_xrpm:.2f}x): Desalineación, holgura mecánica o eje agrietado."
+    elif 2.1 < pos_xrpm < 12.0:
+        return f"Banda Media ({pos_xrpm:.2f}x): Frecuencias de falla de rodamientos (BPFO/BPFI) o paso de paletas."
+    else:
+        return f"Alta Frecuencia ({pos_xrpm:.2f}x): Paso de álabes/dientes, engrane, armónico VFD o modulación de correa."
+
+# =====================================================
+# INTERFAZ Y FLUJO DE USUARIO EN STREAMLIT
+# =====================================================
+st.title("⚡ Analizador Estadístico de Vibraciones (Categoría II)")
+
+archivo = st.file_uploader("Cargar reporte TXT (CSI / AMS Manager)", type=["txt"])
+
+if archivo:
+    try:
+        texto = archivo.read().decode("utf-8", errors="ignore")
+        datos = extraer_datos(texto)
+
+        rpm_detectada = datos.get("rpm", 1780.0)
+
+        # Manejo de estado de sesión para edición de RPM
+        if "archivo_actual" not in st.session_state or st.session_state["archivo_actual"] != archivo.name:
+            st.session_state["archivo_actual"] = archivo.name
+            st.session_state["rpm_input_key"] = float(rpm_detectada)
+
+        with st.sidebar:
+            st.header("⚙️ Configuración Cinemática")
+            st.info(f"RPM detectada en TXT: **{rpm_detectada:.1f} RPM**")
+            
+            rpm_real = st.number_input(
+                "Confirmar/Ajustar RPM Real de Operación:",
+                min_value=1.0,
+                max_value=100000.0,
+                key="rpm_input_key",
+                step=1.0,
+                help="Si midió con estroboscopio o sabe la velocidad real del proceso, ajústela aquí para recalcular las frecuencias xRPM."
+            )
+
+        # Actualizar datos con la RPM ingresada por el usuario
+        datos["rpm"] = rpm_real
+        frecuencia_1x_hz = rpm_real / 60.0
+
+        # Recalcular órdenes cinemáticos dinámicamente
+        if "pos_peak_hz" in datos and frecuencia_1x_hz > 0:
+            datos["pos_peak_xrpm"] = datos["pos_peak_hz"] / frecuencia_1x_hz
+        if "neg_peak_hz" in datos and frecuencia_1x_hz > 0:
+            datos["neg_peak_xrpm"] = datos["neg_peak_hz"] / frecuencia_1x_hz
+        if "zero_cross_hz" in datos and frecuencia_1x_hz > 0:
+            datos["zero_cross_xrpm"] = datos["zero_cross_hz"] / frecuencia_1x_hz
+
+        # Encabezado General
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Equipo", datos.get("equipo", "N/A"))
+        col_m2.metric("Punto", datos.get("punto", "N/A"))
+        col_m3.metric("Fecha", datos.get("fecha", "N/A"))
+        col_m4.metric("Velocidad Validada", f"{rpm_real:.1f} RPM")
+
+        st.markdown("---")
+
+        # Pestañas de Trabajo
+        tab_diag, tab_stats, tab_events, tab_raw, tab_help = st.tabs([
+            "📋 Diagnóstico Experto", 
+            "📊 Indicadores Estadísticos", 
+            "🎯 Cinemática y Eventos", 
+            "📄 Raw Data",
+            "ℹ️ Guía & Ayuda"
+        ])
+
+        # TAB 1: DIAGNÓSTICO
+        with tab_diag:
+            condicion, confianza, hallazgos, recomendaciones = diagnostico_experto(datos)
+            
+            c_left, c_right = st.columns([1, 2])
+            with c_left:
+                st.subheader("Estado General")
+                st.markdown(f"## {condicion}")
+                st.progress(confianza / 100)
+                st.caption(f"Nivel de Confianza: {confianza}%")
+
+            with c_right:
+                st.
