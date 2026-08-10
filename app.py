@@ -1,486 +1,286 @@
 import streamlit as st
 import re
+import pandas as pd
+import plotly.express as px
 
 # =====================================================
 # CONFIGURACION PAGINA
 # =====================================================
-
 st.set_page_config(
-    page_title="Analizador Vibraciones V3",
+    page_title="Analizador de Vibraciones - Cat II",
+    page_icon="⚡",
     layout="wide"
 )
 
 # =====================================================
 # FUNCIONES AUXILIARES
 # =====================================================
-
 def convertir_numero(valor):
-
     valor = valor.strip()
-
     if valor.startswith("-."):
         valor = valor.replace("-.", "-0.")
-
     elif valor.startswith("."):
         valor = "0" + valor
-
     return float(valor)
 
-
 def extraer_numeros(linea):
-
-    numeros = re.findall(
-        r'-?\d+\.\d+|-?\.\d+|-?\d+',
-        linea
-    )
-
-    return numeros
-
+    return re.findall(r'-?\d+\.\d+|-?\.\d+|-?\d+', linea)
 
 # =====================================================
 # EXTRACCION DE DATOS
 # =====================================================
-
 def extraer_datos(texto):
-
     datos = {}
+    
+    # 1. Información General
+    m_eq = re.search(r"Equipment:\s*(.*)", texto)
+    if m_eq: datos["equipo"] = m_eq.group(1).strip()
 
-    lineas = texto.splitlines()
+    m_pt = re.search(r"Meas\. Point:\s*(.*)", texto)
+    if m_pt: datos["punto"] = m_pt.group(1).strip()
 
-    # =====================================
-    # INFORMACION GENERAL
-    # =====================================
+    m_fe = re.search(r"Date/Time:\s*(.*?)\s+RPM=", texto)
+    if m_fe: datos["fecha"] = m_fe.group(1).strip()
 
-    m = re.search(r"Equipment:\s*(.*)", texto)
+    m_rpm = re.search(r"RPM=\s*([\d\.]+)", texto)
+    if m_rpm: datos["rpm"] = float(m_rpm.group(1))
 
-    if m:
-        datos["equipo"] = m.group(1).strip()
-
-    m = re.search(r"Meas\. Point:\s*(.*)", texto)
-
-    if m:
-        datos["punto"] = m.group(1).strip()
-
-    m = re.search(
-        r"Date/Time:\s*(.*?)\s+RPM=",
+    # 2. Max Peak y Crest Factor (Búsqueda por Regex en bloque)
+    match_max_crest = re.search(
+        r"Max Peak\s+\(\+\)\s+\(-\)\s+Crest Factor\s+\(\+\).*?\n[--\s]+\n\s*([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)",
         texto
     )
+    if match_max_crest:
+        datos["max_peak_neg"] = convertir_numero(match_max_crest.group(1))
+        datos["max_peak_pos"] = convertir_numero(match_max_crest.group(2))
+        datos["crest_neg"] = convertir_numero(match_max_crest.group(3))
+        datos["crest_pos"] = convertir_numero(match_max_crest.group(4))
 
-    if m:
-        datos["fecha"] = m.group(1).strip()
-
-    m = re.search(
-        r"RPM=\s*([\d\.]+)",
+    # 3. Avg Peak y RMS Amplitude
+    match_avg_rms = re.search(
+        r"Avg Peak\s+\(\+\)\s+\(-\)\s+RMS Amplitude\s+\(\+\).*?\n[--\s]+\n\s*([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)\s+([-\d\.]+)",
         texto
     )
+    if match_avg_rms:
+        datos["avg_peak_neg"] = convertir_numero(match_avg_rms.group(1))
+        datos["avg_peak_pos"] = convertir_numero(match_avg_rms.group(2))
+        datos["rms_neg"] = convertir_numero(match_avg_rms.group(3))
+        datos["rms_pos"] = convertir_numero(match_avg_rms.group(4))
 
-    if m:
-        datos["rpm"] = float(m.group(1))
+    # 4. Kurtosis y Skewness
+    match_ks = re.search(r"Kurtosis\s+Skewness\s*\n[--\s]+\n.*?\s+([-\d\.]+)\s+([-\d\.]+)\s*$", texto, re.MULTILINE)
+    if match_ks:
+        datos["kurtosis"] = convertir_numero(match_ks.group(1))
+        datos["skewness"] = convertir_numero(match_ks.group(2))
 
-    # =====================================
-    # MAX PEAK / CREST FACTOR
-    # =====================================
+    # 5. Drift
+    m_slope = re.search(r"Slope \(R=.*?\)\s*([-\.\d]+)", texto)
+    if m_slope: datos["slope"] = convertir_numero(m_slope.group(1))
 
-    for i, linea in enumerate(lineas):
+    m_max_dev = re.search(r"Max Deviation\s*([-\.\d]+)", texto)
+    if m_max_dev: datos["max_deviation"] = convertir_numero(m_max_dev.group(1))
 
-        if "Max Peak" in linea and "Crest Factor" in linea:
+    m_rms_dev = re.search(r"RMS Deviation\s*([-\.\d]+)", texto)
+    if m_rms_dev: datos["rms_deviation"] = convertir_numero(m_rms_dev.group(1))
 
-            try:
+    # 6. Eventos
+    p_neg = re.search(r'\(-\)\s+Peaks\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)', texto)
+    if p_neg:
+        datos["neg_peak_xrpm"] = float(p_neg.group(1))
+        datos["neg_peak_count"] = int(p_neg.group(2))
+        datos["neg_peak_hz"] = float(p_neg.group(3))
 
-                valores = extraer_numeros(
-                    lineas[i + 2]
-                )
+    p_pos = re.search(r'\(\+\)\s+Peaks\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)', texto)
+    if p_pos:
+        datos["pos_peak_xrpm"] = float(p_pos.group(1))
+        datos["pos_peak_count"] = int(p_pos.group(2))
+        datos["pos_peak_hz"] = float(p_pos.group(3))
 
-                if len(valores) >= 4:
+    p_zero = re.search(r'Zero Xs\/2\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)', texto)
+    if p_zero:
+        datos["zero_cross_xrpm"] = float(p_zero.group(1))
+        datos["zero_cross_count"] = int(p_zero.group(2))
+        datos["zero_cross_hz"] = float(p_zero.group(3))
 
-                    datos["max_peak_neg"] = convertir_numero(valores[0])
-                    datos["max_peak_pos"] = convertir_numero(valores[1])
-
-                    datos["crest_neg"] = convertir_numero(valores[2])
-                    datos["crest_pos"] = convertir_numero(valores[3])
-
-            except:
-                pass
-
-    # =====================================
-    # AVG PEAK / RMS
-    # =====================================
-
-    for i, linea in enumerate(lineas):
-
-        if "Avg Peak" in linea and "RMS Amplitude" in linea:
-
-            try:
-
-                valores = extraer_numeros(
-                    lineas[i + 2]
-                )
-
-                if len(valores) >= 4:
-
-                    datos["avg_peak_neg"] = convertir_numero(valores[0])
-                    datos["avg_peak_pos"] = convertir_numero(valores[1])
-
-                    datos["rms_neg"] = convertir_numero(valores[2])
-                    datos["rms_pos"] = convertir_numero(valores[3])
-
-            except:
-                pass
-
-    # =====================================
-    # KURTOSIS / SKEWNESS
-    # =====================================
-
-    for i, linea in enumerate(lineas):
-
-        if "Kurtosis" in linea and "Skewness" in linea:
-
-            try:
-
-                valores = extraer_numeros(
-                    lineas[i + 2]
-                )
-
-                if len(valores) >= 2:
-
-                    datos["kurtosis"] = convertir_numero(
-                        valores[-2]
-                    )
-
-                    datos["skewness"] = convertir_numero(
-                        valores[-1]
-                    )
-
-            except:
-                pass
-
-    # =====================================
-    # DRIFT
-    # =====================================
-
-    m = re.search(
-        r"Slope \(R=.*?\)\s*([-\.\d]+)",
-        texto
-    )
-
-    if m:
-
-        try:
-            datos["slope"] = convertir_numero(
-                m.group(1)
-            )
-        except:
-            pass
-
-    m = re.search(
-        r"Max Deviation\s*([-\.\d]+)",
-        texto
-    )
-
-    if m:
-
-        try:
-            datos["max_deviation"] = convertir_numero(
-                m.group(1)
-            )
-        except:
-            pass
-
-    m = re.search(
-        r"RMS Deviation\s*([-\.\d]+)",
-        texto
-    )
-
-    if m:
-
-        try:
-            datos["rms_deviation"] = convertir_numero(
-                m.group(1)
-            )
-        except:
-            pass
-
-    # =====================================
-    # EVENTOS (CORREGIDO)
-    # =====================================
-
-    patron_neg = re.search(
-        r'\(-\)\s+Peaks\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)',
-        texto
-    )
-
-    if patron_neg:
-
-        datos["neg_peak_xrpm"] = float(
-            patron_neg.group(1)
-        )
-
-        datos["neg_peak_count"] = int(
-            patron_neg.group(2)
-        )
-
-        datos["neg_peak_hz"] = float(
-            patron_neg.group(3)
-        )
-
-    patron_pos = re.search(
-        r'\(\+\)\s+Peaks\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)',
-        texto
-    )
-
-    if patron_pos:
-
-        datos["pos_peak_xrpm"] = float(
-            patron_pos.group(1)
-        )
-
-        datos["pos_peak_count"] = int(
-            patron_pos.group(2)
-        )
-
-        datos["pos_peak_hz"] = float(
-            patron_pos.group(3)
-        )
-
-    patron_zero = re.search(
-        r'Zero Xs\/2\s+([\d\.]+)\s+\((\d+)\)\s+([\d\.]+)',
-        texto
-    )
-
-    if patron_zero:
-
-        datos["zero_cross_xrpm"] = float(
-            patron_zero.group(1)
-        )
-
-        datos["zero_cross_count"] = int(
-            patron_zero.group(2)
-        )
-
-        datos["zero_cross_hz"] = float(
-            patron_zero.group(3)
-        )
+    # 7. Distribución de Onda para Gráfico (Waveform Distribution %)
+    match_dist = re.search(r"([0-9\s]+)\s+\(%\)", texto)
+    if match_dist:
+        dist_vals = [int(x) for x in re.findall(r'\b\d+\b', match_dist.group(1))]
+        if len(dist_vals) == 15:
+            datos["distribucion_pct"] = dist_vals
 
     return datos
 
-
 # =====================================================
-# DIAGNOSTICO EXPERTO
+# DIAGNOSTICO EXPERTO (LÓGICA MEJORADA CAT II)
 # =====================================================
-
 def diagnostico_experto(datos):
-
-    kurtosis = datos.get("kurtosis", 0)
-
-    crest = max(
-        datos.get("crest_pos", 0),
-        datos.get("crest_neg", 0)
-    )
-
-    skew = datos.get("skewness", 0)
+    kurtosis = datos.get("kurtosis", 3.0)
+    crest = max(datos.get("crest_pos", 0), datos.get("crest_neg", 0))
+    skew = datos.get("skewness", 0.0)
 
     hallazgos = []
     recomendaciones = []
 
-    if kurtosis < 1:
-
-        hallazgos.append(
-            "Kurtosis baja. No se observan impactos repetitivos."
-        )
-
-    elif kurtosis < 3:
-
-        hallazgos.append(
-            "Kurtosis dentro de rango normal."
-        )
-
-    elif kurtosis < 5:
-
-        hallazgos.append(
-            "Posibles impactos iniciales."
-        )
-
+    # Evaluacion de Kurtosis
+    if 2.3 <= kurtosis <= 3.5:
+        hallazgos.append("Kurtosis normal (2.3 - 3.5): Distribución gaussiana/continua típica.")
+    elif kurtosis < 2.3:
+        hallazgos.append(f"Kurtosis baja ({kurtosis}): Predominio de componente senoidal pura o modulación suave.")
+    elif 3.5 < kurtosis <= 4.5:
+        hallazgos.append(f"Kurtosis moderadamente alta ({kurtosis}): Presencia de impactos levemente transitorios.")
     else:
+        hallazgos.append(f"Kurtosis severa ({kurtosis}): Presencia marcada de impactos impulsivos (posibles rodamientos/engranajes).")
 
-        hallazgos.append(
-            "Impactos significativos detectados."
-        )
-
-    if crest < 4:
-
-        hallazgos.append(
-            "Crest Factor normal."
-        )
-
-    elif crest < 6:
-
-        hallazgos.append(
-            "Crest Factor moderadamente elevado."
-        )
-
+    # Evaluación Factor de Cresta
+    if crest < 3.5:
+        hallazgos.append(f"Factor de Cresta Normal ({crest:.2f}).")
+    elif 3.5 <= crest < 5.0:
+        hallazgos.append(f"Factor de Cresta Moderado ({crest:.2f}): Picos por encima del valor RMS continuo.")
     else:
+        hallazgos.append(f"Factor de Cresta Elevado ({crest:.2f}): Picos de aceleración de alta energía.")
 
-        hallazgos.append(
-            "Crest Factor elevado."
-        )
-
+    # Evaluación Asimetría
     if abs(skew) < 0.2:
-
-        hallazgos.append(
-            "Distribución simétrica."
-        )
-
+        hallazgos.append("Distribución simétrica de la forma de onda.")
     else:
+        hallazgos.append(f"Distribución asimétrica (Skewness: {skew}): Carga/impacto unidireccional o fricción.")
 
-        hallazgos.append(
-            "Distribución asimétrica."
-        )
-
-    if kurtosis < 1 and crest < 4:
-
+    # Ponderación y Condición Global
+    if (2.0 <= kurtosis <= 3.5) and crest < 4.0:
         condicion = "🟢 BUENA"
         confianza = 95
-
-        recomendaciones.append(
-            "Continuar el monitoreo periódico."
-        )
-
-    elif kurtosis < 3 and crest < 5:
-
-        condicion = "🟡 ACEPTABLE"
+        recomendaciones.append("Mantener la rutina de monitoreo periódica actual.")
+    elif (kurtosis <= 4.2) and crest < 5.2:
+        condicion = "🟡 ACEPTABLE / ADVERTENCIA"
         confianza = 85
-
-        recomendaciones.append(
-            "Verificar la tendencia en próxima inspección."
-        )
-
+        recomendaciones.append("Verificar envolvente de aceleración (gSE/PeakVue) y tendencias de rodamientos.")
+        recomendaciones.append("Inspeccionar lubricación y tensión de correas/poleas si aplica.")
     else:
+        condicion = "🔴 ALERTA CRÍTICA"
+        confianza = 90
+        recomendaciones.append("Efectuar análisis de espectro FFT de alta frecuencia y Demodulación/PeakVue.")
+        recomendaciones.append("Inspeccionar mecánicamente rodamientos, holguras y elementos de transmisión.")
 
-        condicion = "🔴 ALERTA"
-        confianza = 70
-
-        recomendaciones.append(
-            "Revisar FFT, envolvente y condición mecánica."
-        )
-
-    return (
-        condicion,
-        confianza,
-        hallazgos,
-        recomendaciones
-    )
-
+    return condicion, confianza, hallazgos, recomendaciones
 
 # =====================================================
-# INTERFAZ
+# EVALUACION CINEMATICA (xRPM)
 # =====================================================
+def evaluar_cinematica(pos_xrpm):
+    if pos_xrpm is None or pos_xrpm == 0:
+        return "Sin datos cinemáticos."
+    
+    if pos_xrpm < 0.95:
+        return f"Sub-síncrono ({pos_xrpm:.2f}x): Jaula de rodamiento (FTF), desprendimiento de flujo o remolino de aceite."
+    elif 0.95 <= pos_xrpm <= 1.05:
+        return f"Síncrono (1X - {pos_xrpm:.2f}x): Desbalance dinámico o componente fundamental."
+    elif 1.9 <= pos_xrpm <= 2.1:
+        return f"Armónico (2X - {pos_xrpm:.2f}x): Desalineación, holgura mecánica o eje agrietado."
+    elif 2.1 < pos_xrpm < 12.0:
+        return f"Banda Media ({pos_xrpm:.2f}x): Frecuencias de falla de rodamientos (BPFO/BPFI) o paso de paletas."
+    else:
+        return f"Alta Frecuencia ({pos_xrpm:.2f}x): Paso de álabes/dientes, engrane, armónico VFD o modulación de correa."
 
-st.title("🔧 Analizador Estadístico de Vibraciones V3")
+# =====================================================
+# INTERFAZ STREAMLIT
+# =====================================================
+st.title("⚡ Analizador Estadístico de Vibraciones (Categoría II)")
 
-archivo = st.file_uploader(
-    "Seleccione archivo TXT",
-    type=["txt"]
-)
+archivo = st.file_uploader("Cargar reporte TXT (CSI / AMS Manager)", type=["txt"])
 
 if archivo:
-
     try:
-
-        texto = archivo.read().decode(
-            "utf-8",
-            errors="ignore"
-        )
-
+        texto = archivo.read().decode("utf-8", errors="ignore")
         datos = extraer_datos(texto)
 
-        st.header("Información General")
+        # 1. Datos Generales
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Equipo", datos.get("equipo", "N/A"))
+        col_m2.metric("Punto", datos.get("punto", "N/A"))
+        col_m3.metric("Fecha", datos.get("fecha", "N/A"))
+        col_m4.metric("Velocidad (RPM)", f"{datos.get('rpm', 0):.1f}")
 
-        c1, c2 = st.columns(2)
+        st.markdown("---")
 
-        with c1:
+        # 2. Pestañas de Trabajo
+        tab_diag, tab_stats, tab_events, tab_raw = st.tabs([
+            "📋 Diagnóstico Experto", 
+            "📊 Indicadores Estadísticos", 
+            "🎯 Cinemática y Eventos", 
+            "📄 Raw Data"
+        ])
 
-            st.write("**Equipo:**", datos.get("equipo", ""))
-            st.write("**Punto:**", datos.get("punto", ""))
+        # TAB 1: DIAGNÓSTICO
+        with tab_diag:
+            condicion, confianza, hallazgos, recomendaciones = diagnostico_experto(datos)
+            
+            c_left, c_right = st.columns([1, 2])
+            with c_left:
+                st.subheader("Estado General")
+                st.markdown(f"## {condicion}")
+                st.progress(confianza / 100)
+                st.caption(f"Nivel de Confianza: {confianza}%")
 
-        with c2:
+            with c_right:
+                st.subheader("Hallazgos Clave")
+                for h in hallazgos:
+                    st.markdown(f"• {h}")
 
-            st.write("**Fecha:**", datos.get("fecha", ""))
-            st.write("**RPM:**", datos.get("rpm", ""))
+                st.subheader("Recomendaciones Recomendadas")
+                for r in recomendaciones:
+                    st.markdown(f"👉 **{r}**")
 
-        st.header("Indicadores Principales")
+        # TAB 2: ESTADÍSTICAS Y GRÁFICO
+        with tab_stats:
+            st.subheader("Parámetros Estadísticos de Forma de Onda")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Kurtosis", f"{datos.get('kurtosis', 0):.3f}")
+            c2.metric("Skewness", f"{datos.get('skewness', 0):.3f}")
+            c3.metric("Crest Factor (+)", f"{datos.get('crest_pos', 0):.2f}")
+            c4.metric("Crest Factor (-)", f"{datos.get('crest_neg', 0):.2f}")
 
-        c1, c2, c3, c4 = st.columns(4)
+            # Gráfico de Distribución
+            if "distribucion_pct" in datos:
+                st.subheader("Distribución de la Onda (Histograma Std Dev)")
+                std_labels = ["-5.0", "-4.3", "-3.6", "-2.9", "-2.1", "-1.4", "-0.7", "0.0", "0.7", "1.4", "2.1", "2.9", "3.6", "4.3", "5.0"]
+                df_dist = pd.DataFrame({
+                    "Desviación Estándar (σ)": std_labels,
+                    "Porcentaje (%)": datos["distribucion_pct"]
+                })
+                fig = px.bar(df_dist, x="Desviación Estándar (σ)", y="Porcentaje (%)", text="Porcentaje (%)",
+                             title="Distribución Amplitud vs Desviación Estándar")
+                fig.update_traces(marker_color='#1f77b4', textposition='outside')
+                st.plotly_chart(fig, use_container_width=True)
 
-        c1.metric(
-            "Kurtosis",
-            datos.get("kurtosis", "N/A")
-        )
+        # TAB 3: EVENTOS Y CINEMÁTICA
+        with tab_events:
+            st.subheader("Análisis de Picos y Frecuencias (xRPM)")
+            
+            xrpm_pos = datos.get("pos_peak_xrpm", 0)
+            interpretacion = evaluar_cinematica(xrpm_pos)
+            
+            st.info(f"**Interpretación Cinemática:** {interpretacion}")
 
-        c2.metric(
-            "Skewness",
-            datos.get("skewness", "N/A")
-        )
+            col_e1, col_e2, col_e3 = st.columns(3)
+            with col_e1:
+                st.markdown("##### Picos Positivos (+)")
+                st.write(f"• **Frecuencia:** {xrpm_pos:.2f} xRPM ({datos.get('pos_peak_hz',0):.1f} Hz)")
+                st.write(f"• **Conteo Eventos:** {datos.get('pos_peak_count',0)}")
+            
+            with col_e2:
+                st.markdown("##### Picos Negativos (-)")
+                st.write(f"• **Frecuencia:** {datos.get('neg_peak_xrpm',0):.2f} xRPM ({datos.get('neg_peak_hz',0):.1f} Hz)")
+                st.write(f"• **Conteo Eventos:** {datos.get('neg_peak_count',0)}")
 
-        c3.metric(
-            "Crest (+)",
-            datos.get("crest_pos", "N/A")
-        )
+            with col_e3:
+                st.markdown("##### Cruces por Cero")
+                st.write(f"• **Frecuencia:** {datos.get('zero_cross_xrpm',0):.2f} xRPM ({datos.get('zero_cross_hz',0):.1f} Hz)")
+                st.write(f"• **Conteo Cruces:** {datos.get('zero_cross_count',0)}")
 
-        c4.metric(
-            "Crest (-)",
-            datos.get("crest_neg", "N/A")
-        )
-
-        condicion, confianza, hallazgos, recomendaciones = (
-            diagnostico_experto(datos)
-        )
-
-        st.header("Semáforo de Condición")
-
-        st.subheader(condicion)
-
-        st.progress(confianza / 100)
-
-        st.write(
-            f"Confianza estimada: {confianza}%"
-        )
-
-        st.header("Hallazgos")
-
-        for item in hallazgos:
-            st.write("✅", item)
-
-        st.header("Recomendaciones")
-
-        for item in recomendaciones:
-            st.write("🔹", item)
-
-        st.header("Eventos")
-
-        st.write(
-            f"(-) Peaks: {datos.get('neg_peak_xrpm','N/A')} xRPM | "
-            f"{datos.get('neg_peak_hz','N/A')} Hz | "
-            f"{datos.get('neg_peak_count','N/A')} eventos"
-        )
-
-        st.write(
-            f"(+) Peaks: {datos.get('pos_peak_xrpm','N/A')} xRPM | "
-            f"{datos.get('pos_peak_hz','N/A')} Hz | "
-            f"{datos.get('pos_peak_count','N/A')} eventos"
-        )
-
-        st.write(
-            f"Zero Crossings: {datos.get('zero_cross_xrpm','N/A')} xRPM | "
-            f"{datos.get('zero_cross_hz','N/A')} Hz | "
-            f"{datos.get('zero_cross_count','N/A')} cruces"
-        )
-
-        st.header("Datos Extraídos")
-
-        st.json(datos)
+        # TAB 4: RAW DATA
+        with tab_raw:
+            st.json(datos)
 
     except Exception as e:
-
-        st.error(
-            f"Error procesando archivo: {str(e)}"
-        )
+        st.error(f"Error procesando el archivo de vibraciones: {str(e)}")
