@@ -271,7 +271,7 @@ else:
                     for r in recomendaciones:
                         st.markdown(f"👉 **{r}**")
 
-            # TAB 2: ESTADÍSTICAS
+            # TAB 2: ESTADÍSTICAS Y GRÁFICO REORDENADO CONTINUO
             with tab_stats:
                 st.subheader("Parámetros Estadísticos de Forma de Onda")
                 c1, c2, c3, c4 = st.columns(4)
@@ -282,9 +282,11 @@ else:
 
                 if "distribucion_pct" in datos:
                     st.subheader("Distribución de la Onda (Histograma Std Dev)")
-                    std_labels = ["-5.0", "-4.3", "-3.6", "-2.9", "-2.1", "-1.4", "-0.7", "0.0", "0.7", "1.4", "2.1", "2.9", "3.6", "4.3", "5.0"]
+                    # Valores float numéricos para orden continuo de izquierda a derecha (-5.0 a +5.0)
+                    std_labels_num = [-5.0, -4.3, -3.6, -2.9, -2.1, -1.4, -0.7, 0.0, 0.7, 1.4, 2.1, 2.9, 3.6, 4.3, 5.0]
+                    
                     df_dist = pd.DataFrame({
-                        "Desviación Estándar (σ)": std_labels,
+                        "Desviación Estándar (σ)": std_labels_num,
                         "Porcentaje (%)": datos["distribucion_pct"]
                     }).set_index("Desviación Estándar (σ)")
                     
