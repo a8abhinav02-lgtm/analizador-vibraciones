@@ -255,4 +255,104 @@ if archivo:
                 st.caption(f"Nivel de Confianza: {confianza}%")
 
             with c_right:
-                st.
+                st.subheader("Hallazgos Clave")
+                for h in hallazgos:
+                    st.markdown(f"• {h}")
+
+                st.subheader("Recomendaciones Tácticas")
+                for r in recomendaciones:
+                    st.markdown(f"👉 **{r}**")
+
+        # TAB 2: ESTADÍSTICAS
+        with tab_stats:
+            st.subheader("Parámetros Estadísticos de Forma de Onda")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Kurtosis", f"{datos.get('kurtosis', 0):.3f}")
+            c2.metric("Skewness", f"{datos.get('skewness', 0):.3f}")
+            c3.metric("Crest Factor (+)", f"{datos.get('crest_pos', 0):.2f}")
+            c4.metric("Crest Factor (-)", f"{datos.get('crest_neg', 0):.2f}")
+
+            if "distribucion_pct" in datos:
+                st.subheader("Distribución de la Onda (Histograma Std Dev)")
+                std_labels = ["-5.0", "-4.3", "-3.6", "-2.9", "-2.1", "-1.4", "-0.7", "0.0", "0.7", "1.4", "2.1", "2.9", "3.6", "4.3", "5.0"]
+                df_dist = pd.DataFrame({
+                    "Desviación Estándar (σ)": std_labels,
+                    "Porcentaje (%)": datos["distribucion_pct"]
+                }).set_index("Desviación Estándar (σ)")
+                
+                st.bar_chart(df_dist)
+
+        # TAB 3: EVENTOS Y CINEMÁTICA
+        with tab_events:
+            st.subheader("Análisis de Picos y Frecuencias (xRPM)")
+            
+            xrpm_pos = datos.get("pos_peak_xrpm", 0)
+            interpretacion = evaluar_cinematica(xrpm_pos)
+            
+            st.info(f"**Interpretación Cinemática:** {interpretacion}")
+
+            col_e1, col_e2, col_e3 = st.columns(3)
+            with col_e1:
+                st.markdown("##### Picos Positivos (+)")
+                st.write(f"• **Frecuencia:** {xrpm_pos:.2f} xRPM ({datos.get('pos_peak_hz',0):.1f} Hz)")
+                st.write(f"• **Conteo Eventos:** {datos.get('pos_peak_count',0)}")
+            
+            with col_e2:
+                st.markdown("##### Picos Negativos (-)")
+                st.write(f"• **Frecuencia:** {datos.get('neg_peak_xrpm',0):.2f} xRPM ({datos.get('neg_peak_hz',0):.1f} Hz)")
+                st.write(f"• **Conteo Eventos:** {datos.get('neg_peak_count',0)}")
+
+            with col_e3:
+                st.markdown("##### Cruces por Cero")
+                st.write(f"• **Frecuencia:** {datos.get('zero_cross_xrpm',0):.2f} xRPM ({datos.get('zero_cross_hz',0):.1f} Hz)")
+                st.write(f"• **Conteo Cruces:** {datos.get('zero_cross_count',0)}")
+
+        # TAB 4: RAW DATA
+        with tab_raw:
+            st.json(datos)
+
+        # TAB 5: AYUDA
+        with tab_help:
+            st.header("📖 Guía de Interpretación Metodológica (ISO 18436-2)")
+            st.markdown("""
+            Esta herramienta evalúa los parámetros estadísticos de la **forma de onda en el tiempo (Time Waveform)** extraídos de colectores de datos (CSI / Emerson AMS Machinery Manager). 
+            A continuación se detalla el significado físico e industrial de cada sección:
+            """)
+
+            with st.expander("📋 1. Diagnóstico Experto y Semáforo de Condición"):
+                st.markdown("""
+                * **🟢 BUENA:** La señal presenta una distribución gaussiana continua, Kurtosis cercana a 3.0 y Factor de Cresta bajo (< 4.0). Indica un funcionamiento suave sin transitorios ni impactos.
+                * **🟡 ACEPTABLE / ADVERTENCIA:** Se observan ligeras desviaciones o aumentos en el Factor de Cresta o Kurtosis. Es un indicador de **fase inicial de falla** (frecuencia de alta energía en rodamientos, inicio de degradación de lubricante o tensión de correas).
+                * **🔴 ALERTA CRÍTICA:** Elevada energía en picos o Kurtosis muy alta (> 4.5). Indica presencia severa de impactos repetitivos por picaduras en rodamientos, dientes de engranajes agrietados o soltura mecánica grave.
+                """)
+
+            with st.expander("📊 2. Indicadores Estadísticos de la Forma de Onda"):
+                st.markdown("""
+                * **Kurtosis (Curtosis):** Mide el grado de "picudez" o presencia de transitorios e impactos en la forma de onda.
+                  * **$K \approx 3.0$**: Distribución Gaussiana (Máquina operando en condición normal).
+                  * **$K < 2.3$**: Predominio de componente armónica/senoidal pura o señal plana.
+                  * **$K > 3.5$**: Indica impactos repetitivos intermitentes (Etapa 2/3 de falla en rodamientos).
+                * **Factor de Cresta (Crest Factor = $\\frac{\\text{Peak}}{\\text{RMS}}$):** Compara el pico máximo instantáneo con el nivel de energía continua $RMS$. Un Factor de Cresta $> 4.0 - 5.0$ alerta sobre piquetes transitorios de alta aceleración ($G$-s).
+                * **Skewness (Asimetría):** Mide la simetría de la onda respecto al eje cero. 
+                  * **$\text{Skew} \approx 0$**: Fuerzas simétricas en ambas direcciones.
+                  * **$\text{Skew} \neq 0$ ($> |0.2|$)**: Fricción unidireccional, rozamiento de rotor o impactos direccionales.
+                * **Histograma de Distribución ($\sigma$):** Representa qué porcentaje de las muestras de tiempo caen en cada banda de Desviación Estándar. Una campana de Gauss simétrica confirma operabilidad normal.
+                """)
+
+            with st.expander("🎯 3. Cinemática y Eventos (xRPM & Hz)"):
+                st.markdown("""
+                Muestra la frecuencia donde ocurren los eventos pico o de cruce por cero en relación con la velocidad de giro ($1\text{X}$):
+                * **$< 0.95\text{x}$ (Sub-síncrono):** Asociado a jaula de rodamiento (FTF), remolino de aceite (*oil whirl*) o turbulencia de flujo.
+                * **$1.0\text{x}$ (Síncrono):** Desbalance dinámico, excentricidad o problema fundamental del rotor.
+                * **$2.0\text{x}$:** Desalineación angular/paralela, eje curvado o soltura mecánica.
+                * **$2.1\text{x} - 12.0\text{x}$ (Banda Media):** Frecuencias de falla en pistas de rodamientos (BPFO, BPFI, BSF) o paso de paletas principales.
+                * **$> 12.0\text{x}$ (Alta Frecuencia):** Frecuencia de paso de álabes (bombas Kamyr), engrane de dientes, modulación por correa o armónicos de variadores de velocidad (VFD / PWM).
+                """)
+
+            with st.expander("📄 4. Raw Data"):
+                st.markdown("""
+                Contiene la estructura de datos cruda extraída del archivo `.txt` codificada en formato JSON. Permite verificar los valores exactos capturados por el motor de expresiones regulares para fines de auditoría técnica.
+                """)
+
+    except Exception as e:
+        st.error(f"Error procesando el archivo de vibraciones: {str(e)}")
